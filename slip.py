@@ -43,6 +43,8 @@ class Enlace:
     def __init__(self, linha_serial):
         self.linha_serial = linha_serial
         self.linha_serial.registrar_recebedor(self.__raw_recv)
+        self.msg_atual = b''
+        self.escaped = False
 
     def registrar_recebedor(self, callback):
         self.callback = callback
@@ -51,6 +53,14 @@ class Enlace:
         # TODO: Preencha aqui com o código para enviar o datagrama pela linha
         # serial, fazendo corretamente a delimitação de quadros e o escape de
         # sequências especiais, de acordo com o protocolo CamadaEnlace (RFC 1055).
+
+        #Passo 2 - O byte 0xC0 é substituído por 0xDB 0xDC e o byte 0xDB é substituído por 0xDB 0xDD.
+        datagrama = datagrama.replace(b'\xdb', b'\xdb\xdd')
+        datagrama = datagrama.replace(b'\xc0', b'\xdb\xdc')
+
+        #Passo 1 - Basta apenas inserir um byte 0xC0 no início e no fim do datagrama para delimitar o quadro.
+        datagrama = b'\xc0' + datagrama + b'\xc0'
+        self.linha_serial.enviar(datagrama)
         pass
 
     def __raw_recv(self, dados):
@@ -61,4 +71,26 @@ class Enlace:
         # vir quebrado de várias formas diferentes - por exemplo, podem vir
         # apenas pedaços de um quadro, ou um pedaço de quadro seguido de um
         # pedaço de outro, ou vários quadros de uma vez só.
-        pass
+
+        for byte in dados:
+            if self.escaped:
+                if byte == 0xDC:
+                    self.msg_atual += bytes([0xC0])
+                elif byte == 0xDD:
+                    self.msg_atual += bytes([0xDB])
+                else:
+                    pass
+                self.escaped = False
+            elif byte == 0xDB:
+                self.escaped = True
+            elif byte == 0xC0:
+                if len(self.msg_atual) != 0:
+                    try:
+                        self.callback(bytes(self.msg_atual))
+                    except:
+                        import traceback
+                        traceback.print_exc
+                    finally:
+                        self.msg_atual = b''
+            else:
+                self.msg_atual += bytes([byte])
